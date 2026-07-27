@@ -1,0 +1,14 @@
+{
+  "name": "daka-checklist",
+  "version": "1.0.0",
+  "description": "邀请好友一起共建打卡清单并协作完成",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
