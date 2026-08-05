@@ -64,8 +64,9 @@ echo ""
 echo "  💡 使用说明:"
 echo "     • 复制上面的链接分享给好友，一起共建打卡清单"
 echo "     • 支持多人协作打卡、拖拽排序、上传图片纪念"
-echo "     • 此链接最长有效期 6 小时 (GitHub Actions 限制)"
-echo "     • 到期后请在 Actions 页面重新运行此 workflow"
+echo "     • 此链接最长有效期约 5.5 小时"
+echo "     • 系统每 4 小时自动刷新链接，GitHub Pages 跳转页自动更新"
+echo "     • 永久入口: https://12siii.github.io/silver/"
 echo "================================================================"
 echo ""
 
@@ -77,19 +78,80 @@ echo ""
   echo ""
   echo "复制上方链接分享给好友，即可一起共建打卡清单 🎯"
   echo ""
-  echo "### 功能一览"
-  echo "- 📝 创建打卡清单，支持设定目标件数"
-  echo "- 👥 邀请好友一起协作（分享 token 链接）"
-  echo "- 🔀 任务支持拖拽排序"
-  echo "- 🖼️ 完成任务需上传图片，双方互相确认"
-  echo "- 🎨 打卡结束生成纪念册（按完成顺序展示照片）"
-  echo "- 👤 支持单人模式，独立完成目标"
-  echo "- 🏠 主页展示进行中 / 已完成清单"
-  echo "- ⏹️ 随时可提前结束打卡"
-  echo ""
-  echo "### ⏰ 有效期"
-  echo "此链接最长可用 **6 小时**（GitHub Actions 免费运行时长限制）。到期后请回到 Actions 页面重新运行此 workflow，即可获得新链接。"
+  echo "### ⏰ 自动刷新"
+  echo "系统每 4 小时自动运行，GitHub Pages 跳转页自动更新。"
+  echo "永久入口: https://12siii.github.io/silver/"
 } >> "$GITHUB_STEP_SUMMARY"
+
+# ============================================================
+# 自动更新 GitHub Pages 跳转页面（永久固定 URL）
+# ============================================================
+echo ""
+echo "=== 更新 GitHub Pages 跳转页面 ==="
+
+# 生成跳转 HTML
+cat > /tmp/redirect.html << REDIRECT_EOF
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一起打卡吧 · 协作打卡清单</title>
+<meta http-equiv="refresh" content="2; url=${URL}">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',sans-serif;background:#f5f0e8;color:#333;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{text-align:center;padding:40px;background:#fff;border:3px solid #333;border-radius:20px;box-shadow:6px 6px 0 #333;max-width:420px}
+.card h1{font-size:28px;margin-bottom:12px}
+.card p{font-size:15px;color:#666;margin-bottom:8px}
+.card a{display:inline-block;margin-top:16px;padding:12px 32px;background:#ff6b6b;color:#fff;text-decoration:none;border-radius:30px;font-weight:bold;font-size:16px;box-shadow:3px 3px 0 #333;transition:transform .2s}
+.card a:hover{transform:translateY(-2px)}
+.spinner{width:40px;height:40px;border:4px solid #f0f0f0;border-top:4px solid #ff6b6b;border-radius:50%;animation:spin 1s linear infinite;margin:20px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>✅ 一起打卡吧</h1>
+<div class="spinner"></div>
+<p>正在跳转到打卡清单...</p>
+<p style="font-size:13px;color:#999;margin-top:12px">如果未自动跳转，请点击下方按钮</p>
+<a href="${URL}">进入打卡清单 →</a>
+</div>
+</body>
+</html>
+REDIRECT_EOF
+
+# 通过 GitHub API 更新 index.html
+CONTENT=$(base64 -w0 < /tmp/redirect.html)
+
+# 获取当前文件 sha（如果文件已存在）
+SHA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github.v3+json" \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/index.html" 2>/dev/null \
+  | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+
+if [ -n "$SHA" ]; then
+  BODY="{\"message\":\"auto: update redirect URL\",\"content\":\"${CONTENT}\",\"sha\":\"${SHA}\"}"
+else
+  BODY="{\"message\":\"auto: create redirect page\",\"content\":\"${CONTENT}\"}"
+fi
+
+RESPONSE=$(curl -s -X PUT \
+  -H "Authorization: token ${GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github.v3+json" \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/index.html" \
+  -d "$BODY" 2>&1)
+
+if echo "$RESPONSE" | grep -q '"content"'; then
+  echo "✅ 跳转页面已更新！"
+  echo "   永久入口: https://12siii.github.io/silver/"
+else
+  echo "⚠️ 跳转页面更新失败（不影响当前使用）"
+  echo "$RESPONSE" | head -5
+fi
 
 # 保持进程存活，维持隧道开放
 echo ""
