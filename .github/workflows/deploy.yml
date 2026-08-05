@@ -1,12 +1,19 @@
 name: Deploy
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-tunnel
+  cancel-in-progress: true
+
 jobs:
-  x:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:
