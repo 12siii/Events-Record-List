@@ -1,9 +1,29 @@
 #!/bin/bash
 set -e
 
+REPO="${GITHUB_REPOSITORY:-12siii/silver}"
+GH_API="https://api.github.com/repos/${REPO}/contents"
+AUTH_HEADER="Authorization: token ${GITHUB_TOKEN}"
+
+# 同步前端文件到 public/（后端也提供前端页面）
+echo "=== 同步前端文件 ==="
+cp index.html app.js style.css backend-url.json public/ 2>/dev/null || true
+
 # 安装依赖
 echo "=== 安装依赖 ==="
 npm install
+
+# ============================================================
+# 数据持久化：从 GitHub 仓库恢复 data.json
+# ============================================================
+echo "=== 恢复数据 ==="
+DATA_SHA=$(curl -s -H "$AUTH_HEADER" "$GH_API/data.json" 2>/dev/null | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+if [ -n "$DATA_SHA" ]; then
+  curl -s -H "$AUTH_HEADER" "$GH_API/data.json" 2>/dev/null | grep -oE '"content":"[^"]*"' | head -1 | cut -d'"' -f4 | base64 -d > data.json 2>/dev/null || true
+  echo "✅ 已从仓库恢复数据"
+else
+  echo "ℹ️ 仓库中暂无数据文件，从零开始"
+fi
 
 # 启动打卡服务
 echo "=== 启动服务器 ==="
@@ -56,104 +76,96 @@ fi
 
 echo ""
 echo "================================================================"
-echo "  🎉🎉🎉  部署成功！"
-echo ""
-echo "  🌐 公网访问地址:"
-echo "     $URL"
-echo ""
-echo "  💡 使用说明:"
-echo "     • 复制上面的链接分享给好友，一起共建打卡清单"
-echo "     • 支持多人协作打卡、拖拽排序、上传图片纪念"
-echo "     • 此链接最长有效期约 5.5 小时"
-echo "     • 系统每 4 小时自动刷新链接，GitHub Pages 跳转页自动更新"
-echo "     • 永久入口: https://12siii.github.io/silver/"
+echo "  🎉 部署成功！"
+echo "  🌐 后端地址: $URL"
+echo "  🔗 永久入口: https://12siii.github.io/silver/"
 echo "================================================================"
-echo ""
 
 # 写入 GitHub Job Summary
 {
-  echo "## 🌐 公网访问地址"
+  echo "## 🌐 部署成功"
   echo ""
-  echo "### ✅ [$URL]($URL)"
+  echo "### 永久入口"
+  echo "https://12siii.github.io/silver/"
   echo ""
-  echo "复制上方链接分享给好友，即可一起共建打卡清单 🎯"
+  echo "### 后端隧道"
+  echo "$URL"
   echo ""
-  echo "### ⏰ 自动刷新"
-  echo "系统每 4 小时自动运行，GitHub Pages 跳转页自动更新。"
-  echo "永久入口: https://12siii.github.io/silver/"
+  echo "系统每 30 分钟自动刷新隧道，数据实时持久化，随时可用。"
 } >> "$GITHUB_STEP_SUMMARY"
 
 # ============================================================
-# 自动更新 GitHub Pages 跳转页面（永久固定 URL）
+# 更新 backend-url.json（前端通过此文件获取后端地址）
 # ============================================================
 echo ""
-echo "=== 更新 GitHub Pages 跳转页面 ==="
+echo "=== 更新 backend-url.json ==="
 
-# 生成跳转 HTML
-cat > /tmp/redirect.html << REDIRECT_EOF
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>一起打卡吧 · 协作打卡清单</title>
-<meta http-equiv="refresh" content="2; url=${URL}">
-<meta name="robots" content="noindex">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',sans-serif;background:#f5f0e8;color:#333;display:flex;align-items:center;justify-content:center;min-height:100vh}
-.card{text-align:center;padding:40px;background:#fff;border:3px solid #333;border-radius:20px;box-shadow:6px 6px 0 #333;max-width:420px}
-.card h1{font-size:28px;margin-bottom:12px}
-.card p{font-size:15px;color:#666;margin-bottom:8px}
-.card a{display:inline-block;margin-top:16px;padding:12px 32px;background:#ff6b6b;color:#fff;text-decoration:none;border-radius:30px;font-weight:bold;font-size:16px;box-shadow:3px 3px 0 #333;transition:transform .2s}
-.card a:hover{transform:translateY(-2px)}
-.spinner{width:40px;height:40px;border:4px solid #f0f0f0;border-top:4px solid #ff6b6b;border-radius:50%;animation:spin 1s linear infinite;margin:20px auto}
-@keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head>
-<body>
-<div class="card">
-<h1>✅ 一起打卡吧</h1>
-<div class="spinner"></div>
-<p>正在跳转到打卡清单...</p>
-<p style="font-size:13px;color:#999;margin-top:12px">如果未自动跳转，请点击下方按钮</p>
-<a href="${URL}">进入打卡清单 →</a>
-</div>
-</body>
-</html>
-REDIRECT_EOF
+JSON_CONTENT=$(echo -n "{\"url\":\"${URL}\",\"ts\":$(date +%s)}" | base64 -w0)
 
-# 通过 GitHub API 更新 index.html
-CONTENT=$(base64 -w0 < /tmp/redirect.html)
+# 获取当前 backend-url.json 的 sha
+BURL_SHA=$(curl -s -H "$AUTH_HEADER" "$GH_API/backend-url.json" 2>/dev/null | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
 
-# 获取当前文件 sha（如果文件已存在）
-SHA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/index.html" 2>/dev/null \
-  | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
-
-if [ -n "$SHA" ]; then
-  BODY="{\"message\":\"auto: update redirect URL\",\"content\":\"${CONTENT}\",\"sha\":\"${SHA}\"}"
+if [ -n "$BURL_SHA" ]; then
+  BODY="{\"message\":\"auto: update backend URL\",\"content\":\"${JSON_CONTENT}\",\"sha\":\"${BURL_SHA}\"}"
 else
-  BODY="{\"message\":\"auto: create redirect page\",\"content\":\"${CONTENT}\"}"
+  BODY="{\"message\":\"auto: create backend URL config\",\"content\":\"${JSON_CONTENT}\"}"
 fi
 
 RESPONSE=$(curl -s -X PUT \
-  -H "Authorization: token ${GITHUB_TOKEN}" \
+  -H "$AUTH_HEADER" \
   -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/index.html" \
+  "$GH_API/backend-url.json" \
   -d "$BODY" 2>&1)
 
 if echo "$RESPONSE" | grep -q '"content"'; then
-  echo "✅ 跳转页面已更新！"
-  echo "   永久入口: https://12siii.github.io/silver/"
+  echo "✅ backend-url.json 已更新！"
 else
-  echo "⚠️ 跳转页面更新失败（不影响当前使用）"
+  echo "⚠️ backend-url.json 更新失败"
   echo "$RESPONSE" | head -5
 fi
 
-# 保持进程存活，维持隧道开放
+# ============================================================
+# 数据持久化：定期将 data.json 提交到仓库（每 20 秒）
+# ============================================================
 echo ""
-echo "服务器与隧道运行中...保持连接中（最长 6 小时）"
-while true; do sleep 300; done
+echo "=== 启动数据持久化守护 ==="
+(
+  LAST_HASH=""
+  while true; do
+    sleep 20
+    [ ! -f data.json ] && continue
+    # 检查文件是否有变化
+    CUR_HASH=$(md5sum data.json | cut -d' ' -f1)
+    [ "$CUR_HASH" = "$LAST_HASH" ] && continue
+    LAST_HASH="$CUR_HASH"
+
+    # 获取当前 data.json 的 sha
+    DSHA=$(curl -s -H "$AUTH_HEADER" "$GH_API/data.json" 2>/dev/null | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+    DCONTENT=$(base64 -w0 < data.json)
+    if [ -n "$DSHA" ]; then
+      DBODY="{\"message\":\"auto: sync data\",\"content\":\"${DCONTENT}\",\"sha\":\"${DSHA}\"}"
+    else
+      DBODY="{\"message\":\"auto: initial data\",\"content\":\"${DCONTENT}\"}"
+    fi
+    curl -s -X PUT -H "$AUTH_HEADER" -H "Accept: application/vnd.github.v3+json" "$GH_API/data.json" -d "$DBODY" > /dev/null 2>&1 || true
+    echo "[$(date '+%H:%M:%S')] 数据已同步"
+  done
+) &
+SYNC_PID=$!
+
+# 保持进程存活，维持隧道开放（35 分钟，与下次定时任务重叠确保无缝衔接）
+echo ""
+echo "服务器与隧道运行中...保持连接中"
+END_TIME=$((SECONDS + 2100)) # 35 分钟
+while [ $SECONDS -lt $END_TIME ]; do
+  sleep 60
+  # 检查服务器是否还活着
+  if ! kill -0 %1 2>/dev/null; then
+    echo "⚠️ 服务器进程已退出"
+    break
+  fi
+  echo "[$(date '+%H:%M:%S')] 运行中... 剩余 $(( (END_TIME - SECONDS) / 60 )) 分钟"
+done
+
+echo "=== 本次运行结束，清理进程 ==="
+kill $SYNC_PID 2>/dev/null || true
