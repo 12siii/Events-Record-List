@@ -1,8 +1,14 @@
 name: Deploy
-on: [push,workflow_dispatch]
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 jobs:
   x:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - run: bash deploy.sh
