@@ -5,6 +5,14 @@ REPO="${GITHUB_REPOSITORY:-12siii/silver}"
 GH_API="https://api.github.com/repos/${REPO}/contents"
 AUTH_HEADER="Authorization: token ${GITHUB_TOKEN}"
 
+# Helper: 从 GitHub API 响应中提取 JSON 字段
+gh_get() {
+  curl -s -H "$AUTH_HEADER" -H "Accept: application/vnd.github.v3+json" "$GH_API/$1" 2>/dev/null
+}
+gh_field() {
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('$1',''))" 2>/dev/null || true
+}
+
 # 同步前端文件到 public/（后端也提供前端页面）
 echo "=== 同步前端文件 ==="
 cp index.html app.js style.css backend-url.json public/ 2>/dev/null || true
@@ -17,9 +25,10 @@ npm install
 # 数据持久化：从 GitHub 仓库恢复 data.json
 # ============================================================
 echo "=== 恢复数据 ==="
-DATA_SHA=$(curl -s -H "$AUTH_HEADER" "$GH_API/data.json" 2>/dev/null | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+DATA_RESP=$(gh_get data.json)
+DATA_SHA=$(echo "$DATA_RESP" | gh_field sha)
 if [ -n "$DATA_SHA" ]; then
-  curl -s -H "$AUTH_HEADER" "$GH_API/data.json" 2>/dev/null | grep -oE '"content":"[^"]*"' | head -1 | cut -d'"' -f4 | base64 -d > data.json 2>/dev/null || true
+  echo "$DATA_RESP" | python3 -c "import json,sys,base64; d=json.load(sys.stdin); sys.stdout.buffer.write(base64.b64decode(d['content']))" > data.json 2>/dev/null || true
   echo "✅ 已从仓库恢复数据"
 else
   echo "ℹ️ 仓库中暂无数据文件，从零开始"
@@ -103,7 +112,7 @@ echo "=== 更新 backend-url.json ==="
 JSON_CONTENT=$(echo -n "{\"url\":\"${URL}\",\"ts\":$(date +%s)}" | base64 -w0)
 
 # 获取当前 backend-url.json 的 sha
-BURL_SHA=$(curl -s -H "$AUTH_HEADER" "$GH_API/backend-url.json" 2>/dev/null | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+BURL_SHA=$(gh_get backend-url.json | gh_field sha)
 
 if [ -n "$BURL_SHA" ]; then
   BODY="{\"message\":\"auto: update backend URL\",\"content\":\"${JSON_CONTENT}\",\"sha\":\"${BURL_SHA}\"}"
@@ -140,7 +149,7 @@ echo "=== 启动数据持久化守护 ==="
     LAST_HASH="$CUR_HASH"
 
     # 获取当前 data.json 的 sha
-    DSHA=$(curl -s -H "$AUTH_HEADER" "$GH_API/data.json" 2>/dev/null | grep -oE '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+    DSHA=$(gh_get data.json | gh_field sha)
     DCONTENT=$(base64 -w0 < data.json)
     if [ -n "$DSHA" ]; then
       DBODY="{\"message\":\"auto: sync data\",\"content\":\"${DCONTENT}\",\"sha\":\"${DSHA}\"}"
